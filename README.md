@@ -2,17 +2,68 @@
 
 `weiyun` 是一个类似 `coscli` 的单进程命令行客户端。它直接调用微云 MCP 接口，不启动网页、HTTP 服务、数据库、Redis 或后台进程。
 
-## 构建
+## 技术栈
 
-项目固定使用 Go 1.27.3：
+- **语言与工具链**：Go `1.27.4`（`CGO_ENABLED=0` 静态构建，无目标机 GLIBC 及其他运行时依赖）
+- **核心依赖**：
+  - `github.com/hanwen/go-fuse/v2` (`v2.12.1`)：Linux FUSE 用户态文件系统挂载
+  - `github.com/pelletier/go-toml/v2` (`v2.4.3`)：TOML 配置文件严格解析
+  - `golang.org/x/sys` (`v0.50.0`)：Linux 终端 TTY 检测与系统调用封装
+
+## 目录结构
+
+```text
+.
+├── cmd/weiyun/              # CLI 入口（信号处理与进程退出码）
+│   └── main.go
+├── configs/                 # 配置示例
+│   └── config.example.toml
+├── docs/                    # 规格说明文档
+│   ├── spec.md              # 客户端整体规格
+│   └── mount-spec.md        # Linux FUSE 挂载规格
+├── internal/
+│   ├── cli/                 # 参数解析、子命令分发、永久删除交互确认
+│   ├── config/              # TOML 配置加载与 0600 权限校验
+│   ├── mount/               # Linux FUSE 节点、稀疏块缓存、flock 与写回状态机
+│   ├── remote/              # 远程路径解析、分页、安全下载及挂载 Backend 适配
+│   ├── upload/              # 微云 512 KiB 分块特殊 SHA1 与分片上传状态机
+│   └── weiyun/              # 微云 MCP JSON-RPC / SSE 客户端与类型定义
+├── scripts/
+│   └── install-service.sh   # Linux systemd 挂载服务安装脚本
+├── go.mod
+├── go.sum
+└── README.md
+```
+
+## 核心模块
+
+- `cmd/weiyun`：监听 `SIGINT`/`SIGTERM` 并转发到 `internal/cli.Run`。
+- `internal/cli`：解析全局 `--config`/`--help` 与子命令（`ls`/`mkdir`/`cp`/`mv`/`share`/`rm`/`mount`），强制执行 `rm -f` 真实 TTY + `DELETE` 确认。
+- `internal/config`：读取 TOML 凭据配置，拒绝未知字段与过宽文件权限（必须 `0600` 或更严格）。
+- `internal/weiyun`：封装微云 MCP 端点调用，支持 JSON/SSE 响应、同源重定向限制与错误脱敏。
+- `internal/upload`：实现流式 512 KiB 共享 SHA1 状态计算与受限分片上传状态机。
+- `internal/remote`：提供 `wy:/` 路径规范化、逐层分页解析、防 SSRF 流式下载及 FUSE 挂载后端接口（含目录元数据 TTL 缓存与 HTTP Range 读取）。
+- `internal/mount`：基于 `go-fuse/v2` 实现可读写 FUSE 挂载、1 MiB 稀疏块持久缓存、顺序预读、排他 `flock`、崩溃恢复与有序退出同步。
+- `scripts/install-service.sh`：将静态二进制与配置注册为 Linux `systemd` 挂载服务。
+
+## 构建与开发运行
+
+项目使用 Go 1.27.4：
 
 ```bash
+# 本地开发直接运行
+go run ./cmd/weiyun --help
+go run ./cmd/weiyun --config ~/.config/weiyun/config.toml ls wy:/
+
+# 构建 Linux 静态二进制
 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o dist/weiyun ./cmd/weiyun
 ```
 
 生成的 `dist/weiyun` 是 Linux 静态二进制，无 Node、Python、SQLite、Redis 或目标机器 GLIBC 运行时依赖。
 
-## 配置
+## 配置与环境变量
+
+### 配置文件
 
 默认读取：
 
@@ -43,6 +94,16 @@ chmod 600 ~/.config/weiyun/config.toml
 ```
 
 程序会拒绝组用户或其他用户可读的配置文件。它不会读取项目目录或当前工作目录中的 `token.txt`，也不会在正常输出和上游错误中打印 Token、Cookie 或上游响应正文。
+
+### 环境变量
+
+| 环境变量 | 作用 | 默认值 / 说明 |
+| --- | --- | --- |
+| `XDG_CONFIG_HOME` | 决定默认配置文件根目录（`<dir>/weiyun/config.toml`） | 未设置时遵循 `os.UserConfigDir()`（Linux 下为 `~/.config`） |
+| `XDG_CACHE_HOME` | 决定 `mount` 默认缓存根目录（`<dir>/weiyun/mounts/...`） | 未设置时遵循 `os.UserCacheDir()`（Linux 下为 `~/.cache`） |
+| `WEIYUN_FUSE_TEST` | 设为 `1` 时启用 `internal/mount` 下的本地真实 FUSE 集成测试 | 未设置时跳过真实 FUSE 集成测试 |
+
+> 注：为保证下载目标 IP/SSRF 校验，文件下载路径显式忽略环境中的 HTTP 代理变量（如 `HTTP_PROXY`、`HTTPS_PROXY`）。
 
 ## 命令
 
@@ -138,10 +199,11 @@ weiyun --config /path/to/config.toml mount 'wy:/资料' /mnt/weiyun --cache-dir 
 ## 测试与静态检查
 
 ```bash
+go mod verify
+go vet ./...
 CGO_ENABLED=0 go test -count=1 ./...
 WEIYUN_FUSE_TEST=1 CGO_ENABLED=0 go test -count=1 -run TestFUSEIntegration ./internal/mount
 CGO_ENABLED=1 go test -race -count=1 ./...
-go vet ./...
 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o dist/weiyun ./cmd/weiyun
 file dist/weiyun
 ldd dist/weiyun

@@ -5,7 +5,7 @@
 ## 1. 产品范围
 
 - 产物是单个 `weiyun` CLI 二进制，入口为 `cmd/weiyun/main.go`。
-- 固定 Go 1.27.3；Linux 交付使用 `CGO_ENABLED=0` 构建静态二进制。
+- 固定 Go 1.27.4；Linux 交付使用 `CGO_ENABLED=0` 构建静态二进制。
 - 不包含网页、Gin、Vue、HTTP 服务、管理员认证、会话、Redis、SQLite、后台任务或 MCP Server。
 - CLI 是微云 MCP 和上传协议客户端，操作范围限定为 Token 授权根 `wy:/`。
 - 不实现多账号、同步盘、回收站管理、分享密码、批量分享、覆盖参数或自动 Token 刷新。
@@ -144,12 +144,12 @@ weiyun mount wy:/目录 /空目录 [--cache-dir 路径]
 必须通过：
 
 ```bash
-GO=/root/.cache/tencent-weiyun-go/toolchain/go1.27.3/go/bin/go
-CGO_ENABLED=0 "$GO" test -count=1 ./...
-WEIYUN_FUSE_TEST=1 CGO_ENABLED=0 "$GO" test -count=1 -run TestFUSEIntegration ./internal/mount
-CGO_ENABLED=1 "$GO" test -race -count=1 ./...
-"$GO" vet ./...
-CGO_ENABLED=0 "$GO" build -trimpath -ldflags='-s -w' -o dist/weiyun ./cmd/weiyun
+go mod verify
+CGO_ENABLED=0 go test -count=1 ./...
+WEIYUN_FUSE_TEST=1 CGO_ENABLED=0 go test -count=1 -run TestFUSEIntegration ./internal/mount
+CGO_ENABLED=1 go test -race -count=1 ./...
+go vet ./...
+CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o dist/weiyun ./cmd/weiyun
 file dist/weiyun
 ldd dist/weiyun
 ```

@@ -8,7 +8,7 @@
 - Linux 前台运行，`Ctrl-C` 有序同步、卸载并退出；不后台化。
 - 最小能力：浏览、整文件缓存读取、创建、随机写、截断、`fsync`、关闭、mkdir、rmdir、无覆盖 rename、移入回收站。
 - 不支持硬链接、符号链接、xattr、永久删除、覆盖 rename、Range 按需读取；必须返回明确错误，不能假成功。
-- 仍使用 Go 1.27.3 和 `CGO_ENABLED=0` 静态构建；锁定 `github.com/hanwen/go-fuse/v2 v2.12.1`。
+- 仍使用 Go 1.27.4 和 `CGO_ENABLED=0` 静态构建；锁定 `github.com/hanwen/go-fuse/v2 v2.12.1`。
 - 本规格只允许本地/mock 测试；不读取 `token.txt`，不执行真实上游读写。
 
 ## 2. 命令与缓存目录
@@ -119,10 +119,9 @@ func (h *FileHandle) Release(context.Context) syscall.Errno
 ## 9. 探测结果与测试
 
 ```bash
-GO=/root/.cache/tencent-weiyun-go/toolchain/go1.27.3/go/bin/go
-$GO mod download -json github.com/hanwen/go-fuse/v2@v2.12.1
+go mod download -json github.com/hanwen/go-fuse/v2@v2.12.1
 cd /tmp/tencent-weiyun-fuse-probe
-CGO_ENABLED=0 $GO test -timeout=45s -count=1 -v .
+CGO_ENABLED=0 go test -timeout=45s -count=1 -v .
 ```
 
 - 环境：`/dev/fuse` 可读写，`fusermount3 3.17.2`；未提权。
